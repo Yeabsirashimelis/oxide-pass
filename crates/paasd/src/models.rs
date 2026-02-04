@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
+use sqlx::prelude::FromRow;
 
-use serde::Deserialize;
-
-#[derive(serde::Deserialize, sqlx::Type, Debug)]
+#[derive(Deserialize, Serialize, sqlx::Type, Debug)]
 #[sqlx(type_name = "app_status", rename_all = "UPPERCASE")]
 pub enum AppStatus {
     PENDING,
@@ -10,7 +10,7 @@ pub enum AppStatus {
     FAILED,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, FromRow)]
 pub struct Application {
     pub name: String,
     pub command: String,
