@@ -17,3 +17,11 @@ pub struct Application {
     pub status: AppStatus,
     pub port: i32,
 }
+
+#[derive(Deserialize, Debug, FromRow)]
+pub struct PatchApplication {
+    pub name: Option<String>,
+    pub command: Option<String>,
+    pub status: Option<AppStatus>,
+    pub port: Option<i32>,
+}

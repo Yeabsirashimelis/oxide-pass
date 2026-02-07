@@ -1,6 +1,8 @@
-use crate::models::Application;
-use crate::repository::app_repo::{get_application, get_applications, insert_application};
-use actix_web::{HttpResponse, Responder, http::header::ContentType, web};
+use crate::models::{Application, PatchApplication};
+use crate::repository::app_repo::{
+    get_application, get_applications, insert_application, patch_application,
+};
+use actix_web::{HttpResponse, Responder, web};
 use sqlx::PgPool;
 
 pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) -> impl Responder {
@@ -12,11 +14,7 @@ pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) 
             eprintln!("DB Error: {}", error);
             return HttpResponse::InternalServerError().finish();
         }
-    };
-
-    HttpResponse::Ok()
-        .content_type(ContentType::plaintext())
-        .body("application registered successfully")
+    }
 }
 
 pub async fn get_programs(pool: web::Data<PgPool>) -> impl Responder {
@@ -40,5 +38,23 @@ pub async fn get_program(pool: web::Data<PgPool>, path: web::Path<i32>) -> impl 
                 return HttpResponse::InternalServerError().finish();
             }
         },
+    }
+}
+
+pub async fn patch_program(
+    pool: web::Data<PgPool>,
+    path: web::Path<i32>,
+    edited_app_info: web::Json<PatchApplication>,
+) -> impl Responder {
+    let app_id = path.into_inner();
+    match patch_application(pool.get_ref(), app_id, &edited_app_info).await {
+        Ok(_) => HttpResponse::Ok().body(format!(
+            "Application Program ID = {} Information Successfully Updated",
+            app_id
+        )),
+        Err(error) => {
+            eprintln!("DB Error: {}", error);
+            return HttpResponse::InternalServerError().finish();
+        }
     }
 }
