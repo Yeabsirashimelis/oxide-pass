@@ -1,4 +1,4 @@
-use crate::models::Application;
+use crate::models::{Application, PatchApplication};
 use sqlx::{Error, PgPool};
 
 pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<(), Error> {
@@ -28,4 +28,60 @@ pub async fn get_application(pool: &PgPool, app_id: i32) -> Result<Application, 
         .await?;
 
     Ok(app)
+}
+
+pub async fn patch_application(
+    pool: &PgPool,
+    app_id: i32,
+    app: &PatchApplication,
+) -> Result<(), Error> {
+    let mut query = String::from("UPDATE app SET ");
+    let mut fields = Vec::new();
+
+    if app.name.is_some() {
+        fields.push(format!("name = ${}", fields.len() + 1));
+    }
+
+    if app.command.is_some() {
+        fields.push(format!("command =${}", fields.len() + 1));
+    }
+
+    if app.status.is_some() {
+        fields.push(format!("status = ${}", fields.len() + 1));
+    }
+
+    if app.port.is_some() {
+        fields.push(format!("port = ${}", fields.len() + 1));
+    }
+
+    if fields.is_empty() {
+        return Ok(());
+    }
+
+    query.push_str(&fields.join(", "));
+    query.push_str(&format!(" WHERE id =${}", fields.len() + 1));
+
+    let mut sql = sqlx::query(&query);
+
+    if let Some(name) = &app.name {
+        sql = sql.bind(name);
+    }
+
+    if let Some(command) = &app.command {
+        sql = sql.bind(command);
+    }
+
+    if let Some(status) = &app.status {
+        sql = sql.bind(status);
+    }
+
+    if let Some(port) = &app.port {
+        sql = sql.bind(port);
+    }
+
+    sql = sql.bind(app_id);
+
+    sql.execute(pool).await?;
+
+    Ok(())
 }
