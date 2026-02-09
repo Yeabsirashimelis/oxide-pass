@@ -2,7 +2,7 @@ use crate::models::{Application, PatchApplication};
 use sqlx::{Error, PgPool};
 
 pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<(), Error> {
-    let query = "INSERT INTO App (name, command, status, port) VALUES ($1, $2, $3, $4)";
+    let query = "INSERT INTO apps (name, command, status, port) VALUES ($1, $2, $3, $4)";
     sqlx::query(query)
         .bind(&app.name)
         .bind(&app.command)
@@ -15,14 +15,14 @@ pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<(), 
 }
 
 pub async fn get_applications(pool: &PgPool) -> Result<Vec<Application>, Error> {
-    let apps = sqlx::query_as(r#"SELECT id, name, command, status, port FROM App"#)
+    let apps = sqlx::query_as(r#"SELECT id, name, command, status, port FROM apps"#)
         .fetch_all(pool)
         .await?;
     Ok(apps)
 }
 
 pub async fn get_application(pool: &PgPool, app_id: i32) -> Result<Application, Error> {
-    let app = sqlx::query_as(r#"SELECT id, name, command, status, port FROM App where id = $1"#)
+    let app = sqlx::query_as(r#"SELECT id, name, command, status, port FROM apps where id = $1"#)
         .bind(app_id)
         .fetch_one(pool)
         .await?;
@@ -35,7 +35,7 @@ pub async fn patch_application(
     app_id: i32,
     app: &PatchApplication,
 ) -> Result<(), Error> {
-    let mut query = String::from("UPDATE app SET ");
+    let mut query = String::from("UPDATE apps SET ");
     let mut fields = Vec::new();
 
     if app.name.is_some() {

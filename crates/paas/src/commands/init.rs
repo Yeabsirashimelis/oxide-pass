@@ -1,6 +1,6 @@
 use anyhow::Ok;
 use std::{
-    fs::{self, File},
+    fs::{self},
     path::{Path, PathBuf},
 };
 
