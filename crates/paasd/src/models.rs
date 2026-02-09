@@ -18,7 +18,7 @@
 //     pub port: i32,
 // }
 
-pub use shared::{Application, PatchApplication};
+pub use shared::{AppStatus, Application, PatchApplication};
 
 // #[derive(Deserialize, Debug, FromRow)]
 // pub struct PatchApplication {

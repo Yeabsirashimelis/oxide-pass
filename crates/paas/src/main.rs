@@ -8,12 +8,13 @@ use crate::{
 mod cli;
 mod commands;
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = parse_cli();
 
     match args.command {
         Commands::Init => init_project(),
-        Commands::Deploy => deploy_project(),
+        Commands::Deploy => deploy_project().await,
         Commands::Status => Ok(()),
         Commands::Logs => Ok(()),
         Commands::Stop => Ok(()),

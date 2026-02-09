@@ -1,0 +1,4 @@
+name = "paas"
+runtime = "rust"
+command = "cargo run"
+port = 3000
