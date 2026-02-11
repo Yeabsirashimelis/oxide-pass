@@ -1426,6 +1426,7 @@ dependencies = [
  "shared",
  "tokio",
  "toml",
+ "uuid",
 ]
 
 [[package]]

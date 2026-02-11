@@ -1,15 +1,13 @@
 use std::{
-    collections::HashMap,
-    fs::File,
-    io::{self},
-    path::Path,
+    fs::{self, File},
+    io::{self, Write},
+    path::{self, Path},
 };
 
 use reqwest::Client;
 use serde::Deserialize;
 use shared::Application;
-
-use crate::commands::status;
+use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct PaasConfig {
@@ -26,10 +24,7 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let file = File::open(filename)?;
-
-    // wrap the file in a bufreader for efficient line-by-line reading
-    let reader = io::BufReader::new(file);
+    let _file = File::open(filename)?;
 
     //read the wholefile into string
     let content = std::fs::read_to_string(filename)?;
@@ -52,6 +47,11 @@ pub async fn deploy_project() -> anyhow::Result<()> {
     let res = client.post(url).json(&request_payload).send().await?;
 
     if res.status().is_success() {
+        let application_id: Uuid = res.json().await?;
+
+        let mut file = fs::OpenOptions::new().append(true).open("paas.toml")?;
+        writeln!(file, "id = {}", application_id);
+
         println!("Project Successfully deployed");
     } else {
         eprintln!("Deployment failed with status: {}", res.status());
