@@ -1,17 +1,20 @@
 use crate::models::{Application, PatchApplication};
-use sqlx::{Error, PgPool};
+use sqlx::{Error, PgPool, Row};
+use uuid::Uuid;
 
-pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<(), Error> {
-    let query = "INSERT INTO apps (name, command, status, port) VALUES ($1, $2, $3, $4)";
-    sqlx::query(query)
+pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<Uuid, Error> {
+    let query =
+        "INSERT INTO apps (name, command, status, port) VALUES ($1, $2, $3, $4) RETURNING id";
+
+    let row = sqlx::query(query)
         .bind(&app.name)
         .bind(&app.command)
         .bind(&app.status)
         .bind(&app.port)
-        .execute(pool)
+        .fetch_one(pool)
         .await?;
 
-    Ok(())
+    Ok(row.get("id"))
 }
 
 pub async fn get_applications(pool: &PgPool) -> Result<Vec<Application>, Error> {

@@ -9,7 +9,7 @@ pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) 
     println!("{:?}", app);
 
     match insert_application(pool.get_ref(), &app).await {
-        Ok(_) => HttpResponse::Ok().body("Application Program Registered Successfully"),
+        Ok(app_id) => HttpResponse::Ok().json(app_id),
         Err(error) => {
             eprintln!("DB Error: {}", error);
             return HttpResponse::InternalServerError().finish();
