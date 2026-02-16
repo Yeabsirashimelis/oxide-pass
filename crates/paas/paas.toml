@@ -1,5 +1,0 @@
-name = "paas"
-runtime = "rust"
-command = "cargo run"
-port = 3000
-id = b462c816-8290-4c7b-bfad-5dc625100476

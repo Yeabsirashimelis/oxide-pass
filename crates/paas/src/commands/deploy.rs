@@ -4,6 +4,7 @@ use std::{
     path::{self, Path},
 };
 
+use anyhow::Ok;
 use reqwest::Client;
 use serde::Deserialize;
 use shared::Application;
@@ -15,6 +16,7 @@ pub struct PaasConfig {
     pub runtime: String,
     pub command: String,
     pub port: Option<i32>,
+    pub id: Option<Uuid>,
 }
 
 pub async fn deploy_project() -> anyhow::Result<()> {
@@ -32,6 +34,12 @@ pub async fn deploy_project() -> anyhow::Result<()> {
     //map/ deserialize it directly into out struct
     let app_data: PaasConfig = toml::from_str(&content)?;
 
+    if let Some(existing_id) = app_data.id {
+        println!("Project already deployed (id: {})", existing_id);
+        println!("Use `paas redeploy` to restart/update.");
+        return Ok(());
+    }
+
     println!("Deploying: {} using {}", app_data.name, app_data.command);
 
     let request_payload = Application {
@@ -41,6 +49,7 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         status: shared::AppStatus::PENDING,
         id: None,
     };
+
     let client = Client::new();
     let url = "http://127.0.0.1:8080/apps";
 
@@ -50,7 +59,7 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         let application_id: Uuid = res.json().await?;
 
         let mut file = fs::OpenOptions::new().append(true).open("paas.toml")?;
-        writeln!(file, "id = {}", application_id);
+        writeln!(file, "id = \"{}\"", application_id);
 
         println!("Project Successfully deployed");
     } else {
