@@ -24,7 +24,7 @@ pub async fn get_applications(pool: &PgPool) -> Result<Vec<Application>, Error> 
     Ok(apps)
 }
 
-pub async fn get_application(pool: &PgPool, app_id: i32) -> Result<Application, Error> {
+pub async fn get_application(pool: &PgPool, app_id: Uuid) -> Result<Application, Error> {
     let app = sqlx::query_as(r#"SELECT id, name, command, status, port FROM apps where id = $1"#)
         .bind(app_id)
         .fetch_one(pool)

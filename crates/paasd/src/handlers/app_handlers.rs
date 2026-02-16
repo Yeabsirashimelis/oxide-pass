@@ -4,6 +4,7 @@ use crate::repository::app_repo::{
 };
 use actix_web::{HttpResponse, Responder, web};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) -> impl Responder {
     println!("{:?}", app);
@@ -27,8 +28,9 @@ pub async fn get_programs(pool: web::Data<PgPool>) -> impl Responder {
     }
 }
 
-pub async fn get_program(pool: web::Data<PgPool>, path: web::Path<i32>) -> impl Responder {
+pub async fn get_program(pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl Responder {
     let app_id = path.into_inner();
+    println!("app id: {}", app_id);
     match get_application(pool.get_ref(), app_id).await {
         Ok(app) => HttpResponse::Ok().json(app),
         Err(error) => match error {

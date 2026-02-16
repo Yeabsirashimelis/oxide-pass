@@ -1,7 +1,7 @@
 use std::{
-    fs::{self, File},
-    io::{self, Write},
-    path::{self, Path},
+    fs::{self},
+    io::Write,
+    path::Path,
 };
 
 use anyhow::Ok;
@@ -22,11 +22,11 @@ pub struct PaasConfig {
 pub async fn deploy_project() -> anyhow::Result<()> {
     let filename = "paas.toml";
     if !Path::new(filename).exists() {
-        println!("Initialize the project first. use 'paas -- init' for that.");
+        println!("Initialize the project first. use 'paas init' for that.");
         return Ok(());
     }
 
-    let _file = File::open(filename)?;
+    // let _file = File::open(filename)?;
 
     //read the wholefile into string
     let content = std::fs::read_to_string(filename)?;
