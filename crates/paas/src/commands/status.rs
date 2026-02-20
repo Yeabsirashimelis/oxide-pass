@@ -14,7 +14,7 @@ pub struct PaasConfig {
 pub async fn check_status() -> anyhow::Result<()> {
     let filename = "paas.toml";
 
-    if !Path::new("paas.toml").exists() {
+    if !Path::new(filename).exists() {
         println!("can not find paas.toml config file. run `paas init` to initialize a project.");
         return Ok(());
     }

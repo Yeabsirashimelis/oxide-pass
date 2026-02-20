@@ -2,7 +2,9 @@ use anyhow::Ok;
 
 use crate::{
     cli::{Commands, parse_cli},
-    commands::{deploy::deploy_project, init::init_project, status::check_status},
+    commands::{
+        deploy::deploy_project, init::init_project, status::check_status, stop::stop_application,
+    },
 };
 
 mod cli;
@@ -17,6 +19,6 @@ async fn main() -> anyhow::Result<()> {
         Commands::Deploy => deploy_project().await,
         Commands::Status => check_status().await,
         Commands::Logs => Ok(()),
-        Commands::Stop => Ok(()),
+        Commands::Stop => stop_application().await,
     }
 }

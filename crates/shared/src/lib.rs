@@ -20,7 +20,7 @@ pub struct Application {
     pub port: i32,
 }
 
-#[derive(Deserialize, Debug, FromRow)]
+#[derive(Deserialize, Serialize, Debug, FromRow)]
 pub struct PatchApplication {
     pub name: Option<String>,
     pub command: Option<String>,

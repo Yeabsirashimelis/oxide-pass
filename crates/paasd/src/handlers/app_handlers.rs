@@ -45,10 +45,12 @@ pub async fn get_program(pool: web::Data<PgPool>, path: web::Path<Uuid>) -> impl
 
 pub async fn patch_program(
     pool: web::Data<PgPool>,
-    path: web::Path<i32>,
+    path: web::Path<Uuid>,
     edited_app_info: web::Json<PatchApplication>,
 ) -> impl Responder {
     let app_id = path.into_inner();
+    println!("patch app id: {}", app_id);
+
     match patch_application(pool.get_ref(), app_id, &edited_app_info).await {
         Ok(_) => HttpResponse::Ok().body(format!(
             "Application Program ID = {} Information Successfully Updated",

@@ -35,7 +35,7 @@ pub async fn get_application(pool: &PgPool, app_id: Uuid) -> Result<Application,
 
 pub async fn patch_application(
     pool: &PgPool,
-    app_id: i32,
+    app_id: Uuid,
     app: &PatchApplication,
 ) -> Result<(), Error> {
     let mut query = String::from("UPDATE apps SET ");
