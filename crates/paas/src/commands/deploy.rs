@@ -59,7 +59,7 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         let application_id: Uuid = res.json().await?;
 
         let mut file = fs::OpenOptions::new().append(true).open("paas.toml")?;
-        writeln!(file, "id = \"{}\"", application_id);
+        writeln!(file, "id = \"{}\"", application_id)?;
 
         println!("Project Successfully deployed");
     } else {
