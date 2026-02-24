@@ -34,7 +34,7 @@ pub struct PatchApplication {
 pub struct AppLog {
     pub id: i64,
     pub app_id: Uuid,
-    pub stream: String,  // "stdout" or "stderr"
+    pub stream: String,
     pub message: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

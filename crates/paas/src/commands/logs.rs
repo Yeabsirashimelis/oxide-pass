@@ -40,7 +40,6 @@ pub async fn show_logs(follow: bool) -> anyhow::Result<()> {
     println!("Fetching logs for {}...", app_name);
 
     if follow {
-        // Poll for new logs every 2 seconds
         let mut last_count = 0usize;
         loop {
             match fetch_logs(&app_id, 200).await {

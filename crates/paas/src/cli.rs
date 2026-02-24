@@ -12,7 +12,6 @@ pub enum Commands {
     Deploy,
     Status,
     Logs {
-        /// Follow log output in real-time
         #[arg(short, long)]
         follow: bool,
     },
