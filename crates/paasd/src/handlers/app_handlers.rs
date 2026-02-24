@@ -18,7 +18,11 @@ pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) 
 
             let agent_url = "http://127.0.0.1:8001/run";
 
-            let agent_response = client.post(agent_url).json(&app_id).send().await;
+            // Send full application data to agent
+            let mut app_with_id = app.into_inner();
+            app_with_id.id = Some(app_id);
+
+            let agent_response = client.post(agent_url).json(&app_with_id).send().await;
 
             match agent_response {
                 Ok(res) if res.status().is_success() => {

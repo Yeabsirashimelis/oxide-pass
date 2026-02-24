@@ -71,6 +71,7 @@ pub async fn stop_application() -> anyhow::Result<()> {
                 name: Option::None,
                 command: Option::None,
                 port: Option::None,
+                working_dir: Option::None,
             };
 
             let res = match client.patch(&url).json(&request_payload).send().await {
