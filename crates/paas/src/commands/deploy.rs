@@ -42,12 +42,17 @@ pub async fn deploy_project() -> anyhow::Result<()> {
 
     println!("Deploying: {} using {}", app_data.name, app_data.command);
 
+    let current_dir = std::env::current_dir()?
+        .to_string_lossy()
+        .to_string();
+
     let request_payload = Application {
         name: app_data.name,
         command: app_data.command,
         port: app_data.port.unwrap_or(3000),
         status: shared::AppStatus::PENDING,
         id: None,
+        working_dir: current_dir,
     };
 
     let client = Client::new();
