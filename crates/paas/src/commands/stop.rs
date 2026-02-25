@@ -1,4 +1,4 @@
-use std::{fs::{read_to_string, write}, path::Path};
+use std::{fs::read_to_string, path::Path};
 
 use anyhow::Ok;
 use reqwest::{Client, StatusCode};
@@ -86,14 +86,7 @@ pub async fn stop_application() -> anyhow::Result<()> {
             match res.status() {
                 StatusCode::OK => {
                     println!("Application stopped successfully.");
-
-                    // Remove the id from paas.toml so the app can be redeployed
-                    let updated_content = config_file_content
-                        .lines()
-                        .filter(|line| !line.trim_start().starts_with("id ="))
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    write(filename, updated_content)?;
+                    println!("Run `paas redeploy` to start it again.");
                 }
                 StatusCode::NOT_FOUND => {
                     eprintln!("Application not found on server.");

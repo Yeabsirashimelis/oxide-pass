@@ -35,8 +35,10 @@ pub async fn deploy_project() -> anyhow::Result<()> {
     let app_data: PaasConfig = toml::from_str(&content)?;
 
     if let Some(existing_id) = app_data.id {
-        println!("Project already deployed (id: {})", existing_id);
-        println!("Use `paas redeploy` to restart/update.");
+        println!("Project already deployed (id: {}).", existing_id);
+        println!("  - To restart it, use `paas redeploy`.");
+        println!("  - To stop it, use `paas stop`.");
+        println!("  - To deploy as a brand new app, remove the `id` line from paas.toml.");
         return Ok(());
     }
 
@@ -65,7 +67,7 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         let application_id: Uuid = res.json().await?;
 
         let mut file = fs::OpenOptions::new().append(true).open("paas.toml")?;
-        writeln!(file, "id = \"{}\"", application_id)?;
+        writeln!(file, "\nid = \"{}\"", application_id)?;
 
         println!("Project Successfully deployed");
     } else if res.status() == reqwest::StatusCode::CONFLICT {
