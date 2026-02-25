@@ -66,25 +66,23 @@ async fn run_program(app: web::Json<Application>) -> impl Responder {
                                 println!("[stdout] {}", line);
 
                                 // Detect the actual port the app is running on
-                                // Matches lines like: "- Local:        http://localhost:3000"
-                                if line.contains("Local:") && line.contains("localhost:") {
-                                    if let Some(port_str) = line
-                                        .split("localhost:")
-                                        .nth(1)
-                                        .and_then(|s| s.split('/').next())
-                                        .and_then(|s| s.trim().parse::<i32>().ok().map(|p| p.to_string()))
-                                    {
-                                        let client = Client::new();
-                                        let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
-                                        let patch_body = serde_json::json!({ "port": port_str.parse::<i32>().unwrap_or(3000) });
-                                        rt.block_on(async {
-                                            if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
-                                                eprintln!("Failed to update actual port: {}", e);
-                                            } else {
-                                                println!("Detected app running on port {}", port_str);
-                                            }
-                                        });
-                                    }
+                                // Supports multiple frameworks:
+                                // Next.js:  "- Local:        http://localhost:3000"
+                                // Go/Gin:   "Listening on :8080" or "Server started on :8080"
+                                // Express:  "Server running on port 3000" or "listening on port 3000"
+                                // General:  anything with "localhost:PORT" or ":PORT" or "port PORT"
+                                let detected_port = detect_port(&line);
+                                if let Some(port) = detected_port {
+                                    let client = Client::new();
+                                    let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
+                                    let patch_body = serde_json::json!({ "port": port });
+                                    rt.block_on(async {
+                                        if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
+                                            eprintln!("Failed to update actual port: {}", e);
+                                        } else {
+                                            println!("Detected app running on port {}", port);
+                                        }
+                                    });
                                 }
 
                                 let log = NewAppLog {
@@ -110,6 +108,22 @@ async fn run_program(app: web::Json<Application>) -> impl Responder {
                         match line {
                             Ok(line) => {
                                 eprintln!("[stderr] {}", line);
+
+                                // Some frameworks (e.g. Go) print port info to stderr
+                                let detected_port = detect_port(&line);
+                                if let Some(port) = detected_port {
+                                    let client = Client::new();
+                                    let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
+                                    let patch_body = serde_json::json!({ "port": port });
+                                    rt.block_on(async {
+                                        if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
+                                            eprintln!("Failed to update actual port: {}", e);
+                                        } else {
+                                            println!("Detected app running on port {}", port);
+                                        }
+                                    });
+                                }
+
                                 let log = NewAppLog {
                                     app_id: app_id_clone,
                                     stream: "stderr".to_string(),
@@ -192,6 +206,54 @@ async fn check_status(path: web::Path<u32>) -> impl Responder {
     } else {
         HttpResponse::Ok().json(serde_json::json!({ "status": "STOPPED" }))
     }
+}
+
+fn detect_port(line: &str) -> Option<i32> {
+    let line_lower = line.to_lowercase();
+
+    // Pattern 1: "localhost:3000" or "127.0.0.1:3000"
+    for prefix in &["localhost:", "127.0.0.1:"] {
+        if let Some(after) = line.find(prefix).map(|i| &line[i + prefix.len()..]) {
+            let port_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(port) = port_str.parse::<i32>() {
+                if port > 0 && port < 65536 {
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    // Pattern 2: "listening on :8080" or "server on :8080" (Go style)
+    if line_lower.contains("listening") || line_lower.contains("started") || line_lower.contains("running") {
+        if let Some(colon_pos) = line.rfind(':') {
+            let after = &line[colon_pos + 1..];
+            let port_str: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if let Ok(port) = port_str.parse::<i32>() {
+                if port > 0 && port < 65536 {
+                    return Some(port);
+                }
+            }
+        }
+    }
+
+    // Pattern 3: "port 3000" or "PORT 3000" (Express, etc.)
+    if line_lower.contains("port") {
+        let words: Vec<&str> = line.split_whitespace().collect();
+        for (i, word) in words.iter().enumerate() {
+            if word.to_lowercase() == "port" {
+                if let Some(next) = words.get(i + 1) {
+                    let port_str: String = next.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if let Ok(port) = port_str.parse::<i32>() {
+                        if port > 0 && port < 65536 {
+                            return Some(port);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 async fn send_log(log: NewAppLog) {
