@@ -68,6 +68,10 @@ pub async fn deploy_project() -> anyhow::Result<()> {
         writeln!(file, "id = \"{}\"", application_id)?;
 
         println!("Project Successfully deployed");
+    } else if res.status() == reqwest::StatusCode::CONFLICT {
+        let body = res.text().await.unwrap_or_default();
+        eprintln!("Deployment failed: {}", body);
+        eprintln!("Tip: Change the port in paas.toml and try again.");
     } else {
         eprintln!("Deployment failed with status: {}", res.status());
     }

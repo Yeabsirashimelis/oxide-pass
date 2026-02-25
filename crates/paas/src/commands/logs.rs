@@ -40,20 +40,31 @@ pub async fn show_logs(follow: bool) -> anyhow::Result<()> {
     println!("Fetching logs for {}...", app_name);
 
     if follow {
-        let mut last_count = 0usize;
+        // Start by fetching existing logs
+        let initial_logs = fetch_logs(&app_id, 100).await.unwrap_or_default();
+        let mut last_timestamp = if initial_logs.is_empty() {
+            chrono::Utc::now().to_rfc3339()
+        } else {
+            for log in &initial_logs {
+                print_log(log);
+            }
+            initial_logs.last().unwrap().created_at.clone()
+        };
+
+        // Poll for new logs using since timestamp
         loop {
-            match fetch_logs(&app_id, 200).await {
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            match fetch_logs_since(&app_id, &last_timestamp).await {
                 Result::Ok(logs) => {
-                    if logs.len() > last_count {
-                        for log in &logs[last_count..] {
+                    if !logs.is_empty() {
+                        for log in &logs {
                             print_log(log);
                         }
-                        last_count = logs.len();
+                        last_timestamp = logs.last().unwrap().created_at.clone();
                     }
                 }
                 Err(e) => eprintln!("Error fetching logs: {}", e),
             }
-            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
         }
     } else {
         match fetch_logs(&app_id, 100).await {
@@ -76,6 +87,15 @@ pub async fn show_logs(follow: bool) -> anyhow::Result<()> {
 async fn fetch_logs(app_id: &Uuid, limit: i64) -> anyhow::Result<Vec<AppLog>> {
     let client = Client::new();
     let url = format!("http://127.0.0.1:8080/apps/{}/logs?limit={}", app_id, limit);
+    let res = client.get(&url).send().await?;
+    let logs: Vec<AppLog> = res.json().await?;
+    Ok(logs)
+}
+
+async fn fetch_logs_since(app_id: &Uuid, since: &str) -> anyhow::Result<Vec<AppLog>> {
+    let client = Client::new();
+    let since_encoded = urlencoding::encode(since);
+    let url = format!("http://127.0.0.1:8080/apps/{}/logs?since={}", app_id, since_encoded);
     let res = client.get(&url).send().await?;
     let logs: Vec<AppLog> = res.json().await?;
     Ok(logs)

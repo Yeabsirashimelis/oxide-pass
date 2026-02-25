@@ -2,6 +2,15 @@ use crate::models::{Application, PatchApplication};
 use sqlx::{Error, PgPool, Row};
 use uuid::Uuid;
 
+pub async fn is_port_in_use(pool: &PgPool, port: i32) -> Result<bool, Error> {
+    let row: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM apps WHERE port = $1 AND status != 'STOPPED'::app_status")
+            .bind(port)
+            .fetch_one(pool)
+            .await?;
+    Ok(row.0 > 0)
+}
+
 pub async fn insert_application(pool: &PgPool, app: &Application) -> Result<Uuid, Error> {
     let query =
         "INSERT INTO apps (name, command, status, port, working_dir) VALUES ($1, $2, $3, $4, $5) RETURNING id";
@@ -34,6 +43,14 @@ pub async fn get_application(pool: &PgPool, app_id: Uuid) -> Result<Application,
     Ok(app)
 }
 
+pub async fn clear_pid(pool: &PgPool, app_id: Uuid) -> Result<(), Error> {
+    sqlx::query("UPDATE apps SET pid = NULL WHERE id = $1")
+        .bind(app_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 pub async fn patch_application(
     pool: &PgPool,
     app_id: Uuid,
@@ -47,7 +64,7 @@ pub async fn patch_application(
     }
 
     if app.command.is_some() {
-        fields.push(format!("command =${}", fields.len() + 1));
+        fields.push(format!("command = ${}", fields.len() + 1));
     }
 
     if app.status.is_some() {

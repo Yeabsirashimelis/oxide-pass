@@ -1,6 +1,7 @@
 use crate::models::{Application, AppStatus, PatchApplication};
 use crate::repository::app_repo::{
-    get_application, get_applications, insert_application, patch_application,
+    clear_pid, get_application, get_applications, insert_application, is_port_in_use,
+    patch_application,
 };
 use actix_web::{HttpResponse, Responder, web};
 use reqwest::Client;
@@ -34,6 +35,22 @@ async fn start_app(app: Application) {
 
 pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) -> impl Responder {
     println!("{:?}", app);
+
+    // Check for port conflicts
+    match is_port_in_use(pool.get_ref(), app.port).await {
+        Ok(true) => {
+            eprintln!("Port {} is already in use by another running app", app.port);
+            return HttpResponse::Conflict().body(format!(
+                "Port {} is already in use by another running application",
+                app.port
+            ));
+        }
+        Err(e) => {
+            eprintln!("DB Error checking port: {}", e);
+            return HttpResponse::InternalServerError().finish();
+        }
+        Ok(false) => {} // Port is free, continue
+    }
 
     match insert_application(pool.get_ref(), &app).await {
         Ok(app_id) => {
@@ -211,7 +228,12 @@ pub async fn redeploy_program(
         kill_app(pid).await;
     }
 
-    // Reset PID and status to PENDING before starting fresh
+    // Clear PID explicitly and reset status to PENDING
+    if let Err(e) = clear_pid(pool.get_ref(), app_id).await {
+        eprintln!("Failed to clear PID: {}", e);
+        return HttpResponse::InternalServerError().finish();
+    }
+
     let patch = PatchApplication {
         name: None,
         command: None,
