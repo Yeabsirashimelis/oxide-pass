@@ -7,6 +7,31 @@ use reqwest::Client;
 use sqlx::PgPool;
 use uuid::Uuid;
 
+async fn kill_app(pid: i32) {
+    let client = Client::new();
+    let body = serde_json::json!({ "pid": pid });
+    if let Err(e) = client
+        .post("http://127.0.0.1:8001/stop")
+        .json(&body)
+        .send()
+        .await
+    {
+        eprintln!("Failed to kill process {}: {}", pid, e);
+    }
+}
+
+async fn start_app(app: Application) {
+    let client = Client::new();
+    if let Err(e) = client
+        .post("http://127.0.0.1:8001/run")
+        .json(&app)
+        .send()
+        .await
+    {
+        eprintln!("Failed to start app: {}", e);
+    }
+}
+
 pub async fn post_program(pool: web::Data<PgPool>, app: web::Json<Application>) -> impl Responder {
     println!("{:?}", app);
 
@@ -112,4 +137,44 @@ pub async fn patch_program(
             return HttpResponse::InternalServerError().finish();
         }
     }
+}
+
+pub async fn redeploy_program(
+    pool: web::Data<PgPool>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    let app_id = path.into_inner();
+    println!("Redeploying app: {}", app_id);
+
+    let app = match get_application(pool.get_ref(), app_id).await {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("DB Error: {}", e);
+            return HttpResponse::NotFound().body("Application not found");
+        }
+    };
+
+    // Kill the old process if running
+    if let Some(pid) = app.pid {
+        kill_app(pid).await;
+    }
+
+    // Reset PID and status to PENDING before starting fresh
+    let patch = PatchApplication {
+        name: None,
+        command: None,
+        port: None,
+        working_dir: None,
+        status: Some(AppStatus::PENDING),
+        pid: None,
+    };
+    if let Err(e) = patch_application(pool.get_ref(), app_id, &patch).await {
+        eprintln!("Failed to reset app status: {}", e);
+        return HttpResponse::InternalServerError().finish();
+    }
+
+    // Start fresh process
+    start_app(app).await;
+
+    HttpResponse::Ok().body("Application redeployed successfully")
 }

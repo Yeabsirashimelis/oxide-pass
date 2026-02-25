@@ -10,6 +10,7 @@ pub struct Cli {
 pub enum Commands {
     Init,
     Deploy,
+    Redeploy,
     Status,
     Logs {
         #[arg(short, long)]
