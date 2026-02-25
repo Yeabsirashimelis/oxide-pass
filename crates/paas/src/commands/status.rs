@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use shared::Application;
 use std::{fs::read_to_string, path::Path};
 use uuid::Uuid;
 
@@ -36,7 +35,7 @@ pub async fn check_status() -> anyhow::Result<()> {
     println!();
 
     let client = Client::new();
-    let url = format!("http://127.0.0.1:8080/apps/{}", app_data.id.unwrap());
+    let url = format!("http://127.0.0.1:8080/apps/{}/status", app_data.id.unwrap());
 
     let res = client.get(&url).send().await?;
 
@@ -45,22 +44,17 @@ pub async fn check_status() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let application_infos: Application = res.json().await?;
+    let info: serde_json::Value = res.json().await?;
 
-    let id = application_infos
-        .id
-        .map(|id| id.to_string())
-        .unwrap_or("unknown".into());
-
-    let app_info_to_print = format!(
-        "Application: {}\nId: {:?}\nStatus: {:?}\nPort: {}\nCommand: {}",
-        application_infos.name,
-        id,
-        application_infos.status,
-        application_infos.port,
-        application_infos.command
+    println!(
+        "Application: {}\nId: {}\nStatus: {}\nPID: {}\nPort: {}\nCommand: {}",
+        info["name"].as_str().unwrap_or("unknown"),
+        info["id"].as_str().unwrap_or("unknown"),
+        info["status"].as_str().unwrap_or("unknown"),
+        info["pid"].as_i64().map(|p: i64| p.to_string()).unwrap_or("none".into()),
+        info["port"].as_i64().unwrap_or(0),
+        info["command"].as_str().unwrap_or("unknown"),
     );
 
-    println!("{}", app_info_to_print);
     Ok(())
 }

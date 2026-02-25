@@ -139,6 +139,58 @@ pub async fn patch_program(
     }
 }
 
+pub async fn get_live_status(
+    pool: web::Data<PgPool>,
+    path: web::Path<Uuid>,
+) -> impl Responder {
+    let app_id = path.into_inner();
+
+    let app = match get_application(pool.get_ref(), app_id).await {
+        Ok(app) => app,
+        Err(_) => return HttpResponse::NotFound().body("Application not found"),
+    };
+
+    let live_status = match app.pid {
+        Some(pid) => {
+            let client = Client::new();
+            let agent_url = format!("http://127.0.0.1:8001/status/{}", pid);
+            match client.get(&agent_url).send().await {
+                Ok(res) if res.status().is_success() => {
+                    let body: serde_json::Value = res.json().await.unwrap_or_default();
+                    body.get("status")
+                        .and_then(|s| s.as_str())
+                        .unwrap_or("UNKNOWN")
+                        .to_string()
+                }
+                _ => "UNKNOWN".to_string(),
+            }
+        }
+        None => "STOPPED".to_string(),
+    };
+
+    // Auto-correct DB if status has diverged
+    if live_status == "STOPPED" && matches!(app.status, AppStatus::RUNNING) {
+        let patch = PatchApplication {
+            name: None,
+            command: None,
+            port: None,
+            working_dir: None,
+            status: Some(AppStatus::STOPPED),
+            pid: None,
+        };
+        let _ = patch_application(pool.get_ref(), app_id, &patch).await;
+    }
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "id": app_id,
+        "name": app.name,
+        "status": live_status,
+        "pid": app.pid,
+        "port": app.port,
+        "command": app.command,
+    }))
+}
+
 pub async fn redeploy_program(
     pool: web::Data<PgPool>,
     path: web::Path<Uuid>,

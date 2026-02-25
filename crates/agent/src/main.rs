@@ -147,6 +147,30 @@ async fn stop_program(body: web::Json<serde_json::Value>) -> impl Responder {
     }
 }
 
+async fn check_status(path: web::Path<u32>) -> impl Responder {
+    let pid = path.into_inner();
+
+    #[cfg(target_os = "windows")]
+    let is_alive = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(false);
+
+    #[cfg(not(target_os = "windows"))]
+    let is_alive = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if is_alive {
+        HttpResponse::Ok().json(serde_json::json!({ "status": "RUNNING" }))
+    } else {
+        HttpResponse::Ok().json(serde_json::json!({ "status": "STOPPED" }))
+    }
+}
+
 async fn send_log(log: NewAppLog) {
     let client = Client::new();
     let url = format!("http://127.0.0.1:8080/apps/{}/logs", log.app_id);
@@ -163,6 +187,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .route("/run", web::post().to(run_program))
             .route("/stop", web::post().to(stop_program))
+            .route("/status/{pid}", web::get().to(check_status))
     })
     .bind(addr)?
     .run()

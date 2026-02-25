@@ -4,7 +4,7 @@ mod repository;
 
 use std::env;
 
-use crate::handlers::app_handlers::{get_program, get_programs, patch_program, post_program, redeploy_program};
+use crate::handlers::app_handlers::{get_live_status, get_program, get_programs, patch_program, post_program, redeploy_program};
 use crate::handlers::log_handlers::{get_app_logs, post_log};
 use actix_web::{App, HttpServer, web};
 use sqlx::PgPool;
@@ -31,6 +31,7 @@ async fn main() -> std::io::Result<()> {
             .route("/apps", web::post().to(post_program))
             .route("/apps", web::get().to(get_programs))
             .route("/apps/{app_id}", web::get().to(get_program))
+            .route("/apps/{app_id}/status", web::get().to(get_live_status))
             .route("/apps/{app_id}", web::patch().to(patch_program))
             .route("/apps/{app_id}/redeploy", web::post().to(redeploy_program))
             .route("/apps/{app_id}/logs", web::post().to(post_log))
