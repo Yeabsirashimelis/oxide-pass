@@ -1,5 +1,3 @@
-use anyhow::Ok;
-
 use crate::{
     cli::{Commands, parse_cli},
     commands::{

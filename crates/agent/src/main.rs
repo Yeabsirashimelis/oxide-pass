@@ -64,6 +64,29 @@ async fn run_program(app: web::Json<Application>) -> impl Responder {
                         match line {
                             Ok(line) => {
                                 println!("[stdout] {}", line);
+
+                                // Detect the actual port the app is running on
+                                // Matches lines like: "- Local:        http://localhost:3000"
+                                if line.contains("Local:") && line.contains("localhost:") {
+                                    if let Some(port_str) = line
+                                        .split("localhost:")
+                                        .nth(1)
+                                        .and_then(|s| s.split('/').next())
+                                        .and_then(|s| s.trim().parse::<i32>().ok().map(|p| p.to_string()))
+                                    {
+                                        let client = Client::new();
+                                        let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
+                                        let patch_body = serde_json::json!({ "port": port_str.parse::<i32>().unwrap_or(3000) });
+                                        rt.block_on(async {
+                                            if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
+                                                eprintln!("Failed to update actual port: {}", e);
+                                            } else {
+                                                println!("Detected app running on port {}", port_str);
+                                            }
+                                        });
+                                    }
+                                }
+
                                 let log = NewAppLog {
                                     app_id: app_id_clone,
                                     stream: "stdout".to_string(),
@@ -122,7 +145,7 @@ async fn stop_program(body: web::Json<serde_json::Value>) -> impl Responder {
 
     #[cfg(target_os = "windows")]
     let result = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F"])
+        .args(["/PID", &pid.to_string(), "/F", "/T"])
         .output();
 
     #[cfg(not(target_os = "windows"))]

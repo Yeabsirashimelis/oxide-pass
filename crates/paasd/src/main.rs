@@ -6,6 +6,7 @@ use std::env;
 
 use crate::handlers::app_handlers::{get_live_status, get_program, get_programs, patch_program, post_program, redeploy_program};
 use crate::handlers::log_handlers::{get_app_logs, post_log};
+use crate::repository::app_repo::mark_stale_apps_stopped;
 use actix_web::{App, HttpServer, web};
 use sqlx::PgPool;
 
@@ -24,6 +25,14 @@ async fn main() -> std::io::Result<()> {
 
     let addr = ("127.0.0.1", 8080);
     let pool = connect_db().await.expect("DB connection failed");
+
+    // On startup, mark any apps that were left in RUNNING/PENDING state as STOPPED
+    // This handles cases where paasd was restarted while apps were running
+    match mark_stale_apps_stopped(&pool).await {
+        Ok(_) => println!("Startup: cleaned up stale app records"),
+        Err(e) => eprintln!("Startup: failed to clean stale apps: {}", e),
+    }
+
     println!("app is bound to http://{}:{}", addr.0, addr.1);
     HttpServer::new(move || {
         App::new()

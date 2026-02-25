@@ -26,3 +26,15 @@ pub async fn get_logs(pool: &PgPool, app_id: Uuid, limit: i64) -> Result<Vec<App
 
     Ok(logs)
 }
+
+pub async fn get_logs_since(pool: &PgPool, app_id: Uuid, since: chrono::DateTime<chrono::Utc>) -> Result<Vec<AppLog>, Error> {
+    let logs = sqlx::query_as(
+        "SELECT id, app_id, stream, message, created_at FROM logs WHERE app_id = $1 AND created_at > $2 ORDER BY created_at ASC"
+    )
+    .bind(app_id)
+    .bind(since)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(logs)
+}

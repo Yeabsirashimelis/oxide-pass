@@ -4,7 +4,6 @@ use std::{
     path::Path,
 };
 
-use anyhow::Ok;
 use reqwest::Client;
 use serde::Deserialize;
 use shared::Application;
@@ -35,8 +34,10 @@ pub async fn deploy_project() -> anyhow::Result<()> {
     let app_data: PaasConfig = toml::from_str(&content)?;
 
     if let Some(existing_id) = app_data.id {
-        println!("Project already deployed (id: {})", existing_id);
-        println!("Use `paas redeploy` to restart/update.");
+        println!("Project already deployed (id: {}).", existing_id);
+        println!("  - To restart it, use `paas redeploy`.");
+        println!("  - To stop it, use `paas stop`.");
+        println!("  - To deploy as a brand new app, remove the `id` line from paas.toml.");
         return Ok(());
     }
 
@@ -62,12 +63,31 @@ pub async fn deploy_project() -> anyhow::Result<()> {
     let res = client.post(url).json(&request_payload).send().await?;
 
     if res.status().is_success() {
-        let application_id: Uuid = res.json().await?;
+        let body: serde_json::Value = res.json().await?;
+        let application_id: Uuid = body["id"].as_str().unwrap_or_default().parse()?;
 
         let mut file = fs::OpenOptions::new().append(true).open("paas.toml")?;
-        writeln!(file, "id = \"{}\"", application_id)?;
+        writeln!(file, "\nid = \"{}\"", application_id)?;
 
         println!("Project Successfully deployed");
+        println!("Starting application...");
+
+        // Wait for app to start and detect actual port
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let client2 = Client::new();
+        let status_url = format!("http://127.0.0.1:8080/apps/{}/status", application_id);
+        if let Ok(status_res) = client2.get(&status_url).send().await {
+            if let Ok(status_body) = status_res.json::<serde_json::Value>().await {
+                let port = status_body["port"].as_i64().unwrap_or(3000);
+                println!("Application is running on port {}", port);
+                println!("Local: http://localhost:{}", port);
+            }
+        }
+    } else if res.status() == reqwest::StatusCode::CONFLICT {
+        let body = res.text().await.unwrap_or_default();
+        eprintln!("Deployment failed: {}", body);
+        eprintln!("Tip: Change the port in paas.toml and try again.");
     } else {
         eprintln!("Deployment failed with status: {}", res.status());
     }

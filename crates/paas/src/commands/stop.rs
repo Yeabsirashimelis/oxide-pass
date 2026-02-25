@@ -85,7 +85,8 @@ pub async fn stop_application() -> anyhow::Result<()> {
 
             match res.status() {
                 StatusCode::OK => {
-                    println!("Application stopped successfully.")
+                    println!("Application stopped successfully.");
+                    println!("Run `paas redeploy` to start it again.");
                 }
                 StatusCode::NOT_FOUND => {
                     eprintln!("Application not found on server.");

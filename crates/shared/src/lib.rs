@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
-#[derive(Deserialize, Serialize, sqlx::Type, Debug)]
+#[derive(Deserialize, Serialize, sqlx::Type, Debug, Clone)]
 #[sqlx(type_name = "app_status", rename_all = "UPPERCASE")]
 pub enum AppStatus {
     PENDING,
@@ -11,7 +11,7 @@ pub enum AppStatus {
     FAILED,
 }
 
-#[derive(Deserialize, Serialize, Debug, FromRow)]
+#[derive(Deserialize, Serialize, Debug, Clone, FromRow)]
 pub struct Application {
     pub id: Option<Uuid>,
     pub name: String,
