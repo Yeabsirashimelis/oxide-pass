@@ -9,6 +9,7 @@ pub enum AppStatus {
     RUNNING,
     STOPPED,
     FAILED,
+    CRASHED,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, FromRow)]

@@ -1,228 +1,16 @@
-use std::{
-    io::{BufRead, BufReader},
-    process::{Command, Stdio},
-};
-
 use actix_web::{App, HttpResponse, HttpServer, Responder, web};
 use reqwest::Client;
 use shared::{Application, NewAppLog};
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
 
-async fn run_program(app: web::Json<Application>) -> impl Responder {
-    println!("Starting application: {}", app.name);
-    println!("Working directory: {}", app.working_dir);
-    println!("Command: {}", app.command);
-
-    let parts: Vec<&str> = app.command.split_whitespace().collect();
-
-    if parts.is_empty() {
-        eprintln!("Empty command provided");
-        return HttpResponse::BadRequest().body("Empty command");
-    }
-
-    let program = parts[0].to_string();
-    let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
-    let working_dir = app.working_dir.clone();
-    let app_id = app.id.unwrap();
-
-    #[cfg(target_os = "windows")]
-    let program = if program == "npm" {
-        "npm.cmd".to_string()
-    } else {
-        program
-    };
-
-    let mut cmd = Command::new(&program);
-    cmd.args(&args)
-        .current_dir(&working_dir);
-    
-    if let Some(env_obj) = &app.env_vars {
-        if let Some(map) = env_obj.as_object() {
-            for (key, val) in map {
-                if let Some(val_str) = val.as_str() {
-                    cmd.env(key, val_str);
-                }
-            }
-        }
-    }
-    
-    let child = cmd.stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-
-    match child {
-        Ok(mut process) => {
-            let pid = process.id();
-            println!("Application started with PID: {:?}", pid);
-
-            // Send PID and update status to RUNNING in paasd
-            let client_pid = Client::new();
-            let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id);
-            let patch_body = serde_json::json!({ "pid": pid as i32, "status": "RUNNING" });
-            if let Err(e) = client_pid.patch(&patch_url).json(&patch_body).send().await {
-                eprintln!("Failed to update PID and status in paasd: {}", e);
-            }
-
-            let stdout = process.stdout.take();
-            let stderr = process.stderr.take();
-
-            // Spawn a task to read stdout and send to paasd
-            if let Some(stdout) = stdout {
-                let app_id_clone = app_id;
-                tokio::task::spawn_blocking(move || {
-                    let reader = BufReader::new(stdout);
-                    let rt = tokio::runtime::Handle::current();
-                    for line in reader.lines() {
-                        match line {
-                            Ok(line) => {
-                                println!("[stdout] {}", line);
-
-                                // Detect the actual port the app is running on
-                                // Supports multiple frameworks:
-                                // Next.js:  "- Local:        http://localhost:3000"
-                                // Go/Gin:   "Listening on :8080" or "Server started on :8080"
-                                // Express:  "Server running on port 3000" or "listening on port 3000"
-                                // General:  anything with "localhost:PORT" or ":PORT" or "port PORT"
-                                let detected_port = detect_port(&line);
-                                if let Some(port) = detected_port {
-                                    let client = Client::new();
-                                    let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
-                                    let patch_body = serde_json::json!({ "port": port });
-                                    rt.block_on(async {
-                                        if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
-                                            eprintln!("Failed to update actual port: {}", e);
-                                        } else {
-                                            println!("Detected app running on port {}", port);
-                                        }
-                                    });
-                                }
-
-                                let log = NewAppLog {
-                                    app_id: app_id_clone,
-                                    stream: "stdout".to_string(),
-                                    message: line,
-                                };
-                                rt.block_on(send_log(log));
-                            }
-                            Err(e) => eprintln!("Error reading stdout: {}", e),
-                        }
-                    }
-                });
-            }
-
-            // Spawn a task to read stderr and send to paasd
-            if let Some(stderr) = stderr {
-                let app_id_clone = app_id;
-                tokio::task::spawn_blocking(move || {
-                    let reader = BufReader::new(stderr);
-                    let rt = tokio::runtime::Handle::current();
-                    for line in reader.lines() {
-                        match line {
-                            Ok(line) => {
-                                eprintln!("[stderr] {}", line);
-
-                                // Some frameworks (e.g. Go) print port info to stderr
-                                let detected_port = detect_port(&line);
-                                if let Some(port) = detected_port {
-                                    let client = Client::new();
-                                    let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id_clone);
-                                    let patch_body = serde_json::json!({ "port": port });
-                                    rt.block_on(async {
-                                        if let Err(e) = client.patch(&patch_url).json(&patch_body).send().await {
-                                            eprintln!("Failed to update actual port: {}", e);
-                                        } else {
-                                            println!("Detected app running on port {}", port);
-                                        }
-                                    });
-                                }
-
-                                let log = NewAppLog {
-                                    app_id: app_id_clone,
-                                    stream: "stderr".to_string(),
-                                    message: line,
-                                };
-                                rt.block_on(send_log(log));
-                            }
-                            Err(e) => eprintln!("Error reading stderr: {}", e),
-                        }
-                    }
-                });
-            }
-
-            HttpResponse::Ok().body(format!("Started with PID: {}", pid))
-        }
-        Err(e) => {
-            eprintln!("Failed to execute process: {}", e);
-            HttpResponse::InternalServerError().body(format!("Failed to start: {}", e))
-        }
-    }
-}
-
-async fn stop_program(body: web::Json<serde_json::Value>) -> impl Responder {
-    let pid = match body.get("pid").and_then(|p| p.as_i64()) {
-        Some(pid) => pid as u32,
-        None => {
-            eprintln!("No PID provided");
-            return HttpResponse::BadRequest().body("No PID provided");
-        }
-    };
-
-    println!("Killing process with PID: {}", pid);
-
-    #[cfg(target_os = "windows")]
-    let result = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/F", "/T"])
-        .output();
-
-    #[cfg(not(target_os = "windows"))]
-    let result = std::process::Command::new("kill")
-        .args(["-9", &pid.to_string()])
-        .output();
-
-    match result {
-        Ok(output) if output.status.success() => {
-            println!("Process {} killed successfully", pid);
-            HttpResponse::Ok().body(format!("Process {} stopped", pid))
-        }
-        Ok(output) => {
-            let err = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Failed to kill process {}: {}", pid, err);
-            HttpResponse::InternalServerError().body(format!("Failed to kill process: {}", err))
-        }
-        Err(e) => {
-            eprintln!("Error killing process {}: {}", pid, e);
-            HttpResponse::InternalServerError().body(format!("Error: {}", e))
-        }
-    }
-}
-
-async fn check_status(path: web::Path<u32>) -> impl Responder {
-    let pid = path.into_inner();
-
-    #[cfg(target_os = "windows")]
-    let is_alive = std::process::Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
-        .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
-        .unwrap_or(false);
-
-    #[cfg(not(target_os = "windows"))]
-    let is_alive = std::process::Command::new("kill")
-        .args(["-0", &pid.to_string()])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    if is_alive {
-        HttpResponse::Ok().json(serde_json::json!({ "status": "RUNNING" }))
-    } else {
-        HttpResponse::Ok().json(serde_json::json!({ "status": "STOPPED" }))
-    }
-}
+const MAX_RETRIES: u32 = 3;
 
 fn detect_port(line: &str) -> Option<i32> {
     let line_lower = line.to_lowercase();
 
-    // Ignore error/warning lines — they often contain ports of failed connections
+    // Ignore error/warning lines
     if line_lower.contains("error")
         || line_lower.contains("failed")
         || line_lower.contains("refused")
@@ -292,11 +80,238 @@ fn detect_port(line: &str) -> Option<i32> {
     None
 }
 
+async fn update_status(app_id: uuid::Uuid, status: &str) {
+    let client = Client::new();
+    let url = format!("http://127.0.0.1:8080/apps/{}", app_id);
+    let _ = client
+        .patch(&url)
+        .json(&serde_json::json!({ "status": status }))
+        .send()
+        .await;
+}
+
 async fn send_log(log: NewAppLog) {
     let client = Client::new();
     let url = format!("http://127.0.0.1:8080/apps/{}/logs", log.app_id);
     if let Err(e) = client.post(&url).json(&log).send().await {
         eprintln!("Failed to send log to paasd: {}", e);
+    }
+}
+
+async fn spawn_app(app: Application, attempt: u32) {
+    let app_id = app.id.unwrap();
+    let parts: Vec<&str> = app.command.split_whitespace().collect();
+    if parts.is_empty() {
+        eprintln!("Empty command");
+        return;
+    }
+
+    let program = parts[0].to_string();
+    let args: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+
+    let mut cmd = Command::new(&program);
+    cmd.args(&args)
+        .current_dir(&app.working_dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    if let Some(env_obj) = &app.env_vars {
+        if let Some(map) = env_obj.as_object() {
+            for (key, val) in map {
+                if let Some(val_str) = val.as_str() {
+                    cmd.env(key, val_str);
+                }
+            }
+        }
+    }
+
+    let mut process = match cmd.spawn() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to execute process: {}", e);
+            update_status(app_id, "CRASHED").await;
+            return;
+        }
+    };
+
+    let pid = process.id().unwrap_or(0);
+    println!("Application started with PID: {} (attempt {}/{})", pid, attempt, MAX_RETRIES);
+
+    // Send PID and update status to RUNNING
+    let client_pid = Client::new();
+    let patch_url = format!("http://127.0.0.1:8080/apps/{}", app_id);
+    let patch_body = serde_json::json!({ "pid": pid as i32, "status": "RUNNING" });
+    if let Err(e) = client_pid.patch(&patch_url).json(&patch_body).send().await {
+        eprintln!("Failed to update PID and status: {}", e);
+    }
+
+    let stdout = process.stdout.take();
+    let stderr = process.stderr.take();
+    let app_id_stdout = app_id;
+    let app_id_stderr = app_id;
+
+    if let Some(stdout) = stdout {
+        tokio::spawn(async move {
+            let reader = BufReader::new(stdout);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                println!("[stdout] {}", line);
+                if let Some(port) = detect_port(&line) {
+                    println!("Detected app running on port {}", port);
+                    let client = Client::new();
+                    let url = format!("http://127.0.0.1:8080/apps/{}", app_id_stdout);
+                    let _ = client
+                        .patch(&url)
+                        .json(&serde_json::json!({ "port": port }))
+                        .send()
+                        .await;
+                }
+                send_log(NewAppLog {
+                    app_id: app_id_stdout,
+                    stream: "stdout".to_string(),
+                    message: line,
+                })
+                .await;
+            }
+        });
+    }
+
+    if let Some(stderr) = stderr {
+        tokio::spawn(async move {
+            let reader = BufReader::new(stderr);
+            let mut lines = reader.lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                println!("[stderr] {}", line);
+                if let Some(port) = detect_port(&line) {
+                    println!("Detected app running on port {}", port);
+                    let client = Client::new();
+                    let url = format!("http://127.0.0.1:8080/apps/{}", app_id_stderr);
+                    let _ = client
+                        .patch(&url)
+                        .json(&serde_json::json!({ "port": port }))
+                        .send()
+                        .await;
+                }
+                send_log(NewAppLog {
+                    app_id: app_id_stderr,
+                    stream: "stderr".to_string(),
+                    message: line,
+                })
+                .await;
+            }
+        });
+    }
+
+    let status = process.wait().await;
+
+    match status {
+        Ok(exit_status) if exit_status.success() => {
+            println!("Application exited cleanly.");
+            update_status(app_id, "STOPPED").await;
+        }
+        _ => {
+            if attempt < MAX_RETRIES {
+                println!(
+                    "Application crashed! Restarting... (attempt {}/{})",
+                    attempt + 1,
+                    MAX_RETRIES
+                );
+                send_log(NewAppLog {
+                    app_id,
+                    stream: "stderr".to_string(),
+                    message: format!(
+                        "[PaaS] App crashed. Restarting... (attempt {}/{})",
+                        attempt + 1,
+                        MAX_RETRIES
+                    ),
+                })
+                .await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                Box::pin(spawn_app(app, attempt + 1)).await;
+            } else {
+                eprintln!(
+                    "Application crashed after {} attempts. Marking as CRASHED.",
+                    MAX_RETRIES
+                );
+                send_log(NewAppLog {
+                    app_id,
+                    stream: "stderr".to_string(),
+                    message: format!(
+                        "[PaaS] App crashed after {} attempts. Giving up.",
+                        MAX_RETRIES
+                    ),
+                })
+                .await;
+                update_status(app_id, "CRASHED").await;
+            }
+        }
+    }
+}
+
+async fn run_program(app: web::Json<Application>) -> impl Responder {
+    let app = app.into_inner();
+    println!("Starting application: {}", app.name);
+    println!("Working directory: {}", app.working_dir);
+    println!("Command: {}", app.command);
+
+    tokio::spawn(async move {
+        spawn_app(app, 1).await;
+    });
+
+    HttpResponse::Ok().finish()
+}
+
+async fn stop_program(body: web::Json<serde_json::Value>) -> impl Responder {
+    let pid = match body.get("pid").and_then(|p| p.as_i64()) {
+        Some(p) => p as u32,
+        None => return HttpResponse::BadRequest().body("Missing pid"),
+    };
+
+    println!("Killing process with PID: {}", pid);
+
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/F", "/T"])
+        .output();
+
+    #[cfg(not(target_os = "windows"))]
+    let result = std::process::Command::new("kill")
+        .args(["-9", &pid.to_string()])
+        .output();
+
+    match result {
+        Ok(_) => {
+            println!("Process {} killed successfully", pid);
+            HttpResponse::Ok().finish()
+        }
+        Err(e) => {
+            eprintln!("Failed to kill process {}: {}", pid, e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+
+async fn check_status(path: web::Path<u32>) -> impl Responder {
+    let pid = path.into_inner();
+
+    #[cfg(target_os = "windows")]
+    let is_alive = std::process::Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {}", pid), "/NH"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains(&pid.to_string()))
+        .unwrap_or(false);
+
+    #[cfg(not(target_os = "windows"))]
+    let is_alive = std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if is_alive {
+        HttpResponse::Ok().json(serde_json::json!({ "status": "RUNNING" }))
+    } else {
+        HttpResponse::Ok().json(serde_json::json!({ "status": "STOPPED" }))
     }
 }
 
