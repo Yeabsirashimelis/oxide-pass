@@ -38,3 +38,41 @@ pub async fn get_logs_since(pool: &PgPool, app_id: Uuid, since: chrono::DateTime
 
     Ok(logs)
 }
+
+/// Delete logs older than 7 days
+pub async fn delete_old_logs(pool: &PgPool) -> Result<u64, Error> {
+    let result = sqlx::query(
+        "DELETE FROM logs WHERE created_at < NOW() - INTERVAL '7 days'"
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Keep only the last 1000 log entries per app, delete the rest
+pub async fn trim_logs_per_app(pool: &PgPool) -> Result<u64, Error> {
+    let result = sqlx::query(
+        "DELETE FROM logs WHERE id IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (PARTITION BY app_id ORDER BY created_at DESC) as rn
+                FROM logs
+            ) ranked
+            WHERE rn > 1000
+        )"
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+/// Run all cleanup tasks
+pub async fn cleanup_logs(pool: &PgPool) {
+    match delete_old_logs(pool).await {
+        Ok(n) => println!("Log cleanup: deleted {} logs older than 7 days", n),
+        Err(e) => eprintln!("Log cleanup error (old logs): {}", e),
+    }
+    match trim_logs_per_app(pool).await {
+        Ok(n) => println!("Log cleanup: trimmed {} excess logs (keeping last 1000 per app)", n),
+        Err(e) => eprintln!("Log cleanup error (trim): {}", e),
+    }
+}
