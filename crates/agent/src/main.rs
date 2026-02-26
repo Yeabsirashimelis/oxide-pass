@@ -5,6 +5,47 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
+#[cfg(windows)]
+mod job_object {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, JOBOBJECT_BASIC_LIMIT_INFORMATION,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    };
+    use windows::Win32::System::Threading::OpenProcess;
+    use windows::Win32::System::Threading::{PROCESS_ALL_ACCESS};
+
+    pub fn assign_process_to_job(pid: u32) {
+        unsafe {
+            // Create a new Job Object
+            let job = CreateJobObjectW(None, None).unwrap();
+
+            // Set KILL_ON_JOB_CLOSE so all processes in job die when agent exits
+            let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+                BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                    LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            let _ = SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &mut info as *mut _ as *mut _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+
+            // Open the process and assign to job
+            let process = OpenProcess(PROCESS_ALL_ACCESS, false, pid).unwrap();
+            let _ = AssignProcessToJobObject(job, HANDLE(process.0));
+
+            println!("Process {} assigned to Job Object (will die with agent)", pid);
+        }
+    }
+}
+
 const MAX_RETRIES: u32 = 3;
 
 fn detect_port(line: &str) -> Option<i32> {
@@ -148,6 +189,10 @@ async fn spawn_app(app: Application, attempt: u32) {
 
     let pid = process.id().unwrap_or(0);
     println!("Application started with PID: {} (attempt {}/{})", pid, attempt, MAX_RETRIES);
+
+    // Assign to Job Object so child processes die when agent stops (Windows only)
+    #[cfg(windows)]
+    job_object::assign_process_to_job(pid);
 
     // Send PID and update status to RUNNING
     let client_pid = Client::new();
