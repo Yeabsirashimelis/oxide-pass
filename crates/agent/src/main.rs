@@ -267,6 +267,24 @@ async fn spawn_app(app: Application, attempt: u32) {
             update_status(app_id, "STOPPED").await;
         }
         _ => {
+            // Check if the app was intentionally stopped before restarting
+            let client = Client::new();
+            let url = format!("http://127.0.0.1:8080/apps/{}", app_id);
+            let is_intentionally_stopped = if let Ok(res) = client.get(&url).send().await {
+                if let Ok(body) = res.json::<serde_json::Value>().await {
+                    body["status"].as_str().unwrap_or("") == "STOPPED"
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
+            if is_intentionally_stopped {
+                println!("Process was intentionally stopped. Not restarting.");
+                return;
+            }
+
             if attempt < MAX_RETRIES {
                 println!(
                     "Application crashed! Restarting... (attempt {}/{})",

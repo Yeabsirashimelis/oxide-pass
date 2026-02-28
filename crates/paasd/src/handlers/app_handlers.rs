@@ -128,10 +128,18 @@ pub async fn patch_program(
     let app_id = path.into_inner();
     println!("patch app id: {}", app_id);
 
-    // If stopping, fetch the PID and kill the process via agent
+    // If stopping, update DB to STOPPED FIRST, then kill the process
+    // This prevents the agent from restarting the app after kill
     if matches!(edited_app_info.status, Some(AppStatus::STOPPED)) {
         match get_application(pool.get_ref(), app_id).await {
             Ok(app) => {
+                // Update DB to STOPPED before killing so agent sees STOPPED status
+                if let Err(e) = patch_application(pool.get_ref(), app_id, &edited_app_info).await {
+                    eprintln!("DB Error: {}", e);
+                    return HttpResponse::InternalServerError().finish();
+                }
+
+                // Now kill the process
                 if let Some(pid) = app.pid {
                     let client = Client::new();
                     let agent_url = "http://127.0.0.1:8001/stop";
@@ -140,6 +148,11 @@ pub async fn patch_program(
                         eprintln!("Failed to contact agent to kill process: {}", e);
                     }
                 }
+
+                return HttpResponse::Ok().body(format!(
+                    "Application Program ID = {} stopped successfully",
+                    app_id
+                ));
             }
             Err(e) => {
                 eprintln!("Could not fetch app to get PID: {}", e);
